@@ -1,232 +1,269 @@
-const express = require('express')
-const cors = require('cors')
-const compression = require('compression')
-const childProcess = require('child_process')
-const config = require('./cmd')
+const express = require("express");
+const cors = require("cors");
+const compression = require("compression");
+const childProcess = require("child_process");
+const config = require("./cmd");
+const path = require("path");
+const fs = require("fs");
+require("puppeteer-stream");
+const puppeteer = require("puppeteer");
+const CACHE_DURATION = 30000;
+const TIME_SLEEP_MS = 50;
+// const MAX_SLEEP_COUNT = (1000 / TIME_SLEEP_MS) * 10;
+const MAX_SLEEP_COUNT = Infinity;
+const stream = require("./utils/stream");
 
-const CACHE_DURATION = 3000 * 1000
-const TIME_SLEEP_MS = 50
-const MAX_SLEEP_COUNT = 1000 / TIME_SLEEP_MS * 10
-const PORT = 3104
+const PORT = 3104;
+
+const NodeMediaServer = require("node-media-server");
+
+const RTMPconfig = {
+  rtmp: {
+    port: 1935,
+    chunk_size: 60000,
+    gop_cache: true,
+    ping: 30,
+    ping_timeout: 60,
+  },
+  http: {
+    port: 8000,
+    allow_origin: "*",
+  },
+};
+
+var nms = new NodeMediaServer(RTMPconfig);
+nms.run()
 
 class UllServer {
-  start () {
-    this.app = express()
-    this.app.use(cors())
-    this.app.use(compression())
-    this.cache = {}
-    this.listen()
+  start() {
+    this.app = express();
+    this.app.use(cors());
+    this.app.use(compression());
+    this.cache = {};
+    this.listen();
   }
 
-  listen () {
-    this.acceptUpload()
-    this.acceptDownload()
+  async startRecording() {}
 
-    this.app.post('/start', (req, res, next) => {
+  listen() {
+    this.acceptUpload();
+    this.acceptDownload();
+
+    this.app.get("/", (req, res) => {
+      res.sendFile(path.join(__dirname, "index.html"));
+    });
+
+    this.app.post("/start", (req, res, next) => {
       if (this.instance) {
-        return res.status(200).json({ message: 'already started' })
+        return res.status(200).json({ message: "already started" });
       }
-      this.startTranscoding()
-      return res.status(200).json({ message: `started manifest is at http://localhost:${PORT}/manifest.mpd` })
-    })
+      this.startTranscoding();
+      return res.status(200).json({
+        message: `started manifest is at http://localhost:${PORT}/manifest.mpd`,
+      });
+    });
 
-    this.app.post('/stop', (req, res, next) => {
+    this.app.post("/stop", (req, res, next) => {
       if (!this.instance) {
-        return res.status(200).json({ message: 'already stopped' })
+        return res.status(200).json({ message: "already stopped" });
       }
-      this.stopTranscoding()
-      return res.status(200).json({ message: 'stopped' })
-    })
+      this.stopTranscoding();
+      return res.status(200).json({ message: "stopped" });
+    });
 
     this.server = this.app.listen(PORT, () => {
-      console.log('ULL server listening... port', PORT, 'POST to /start to start the transcoder')
-    })
+      console.log(
+        "ULL server listening... port",
+        PORT,
+        "POST to /start to start the transcoder"
+      );
+    });
   }
 
-  startTranscoding () {
-    this.instance = childProcess.spawn('ffmpeg', config)
-    let isFirstData = true
-    this.instance.stderr.on('data', data => {
+  startTranscoding() {
+    this.instance = childProcess.spawn("ffmpeg", config);
+    let isFirstData = true;
+    this.instance.stderr.on("data", (data) => {
       if (isFirstData) {
-        console.log('ffmpeg started')
-        isFirstData = false
+        console.log("ffmpeg started");
+        isFirstData = false;
       }
-    })
+    });
 
-    this.instance.on('close', () => {
-      console.log('ffmpeg closed')
-    })
+    this.instance.on("close", () => {
+      console.log("ffmpeg closed");
+    });
   }
 
-  stopTranscoding () {
-    this.instance.kill()
-    this.instance = undefined
+  stopTranscoding() {
+    this.instance.kill();
+    this.instance = undefined;
   }
 
-  acceptUpload () {
-    this.app.put('/:filename', (req, res, next) => {
-      const { filename } = req.params
+  acceptUpload() {
+    this.app.put("/:filename", (req, res, next) => {
+      const { filename } = req.params;
 
       try {
         if (!this.isCached(filename) || this.isPlaylist(filename)) {
-          this.resetFileCache(filename)
+          this.resetFileCache(filename);
         }
       } catch (e) {
-        return res.status(400).send()
+        return res.status(400).send();
       }
 
-      req.on('data', chunk => {
+      req.on("data", (chunk) => {
         try {
-          this.cacheChunk(filename, chunk)
+          this.cacheChunk(filename, chunk);
         } catch (e) {
-          return res.status(400).send()
+          return res.status(400).send();
         }
-      })
+      });
 
-      req.on('end', () => {
+      req.on("end", () => {
         try {
           if (this.isTempCached(filename)) {
-            this.scheduleClearCache(filename)
+            this.scheduleClearCache(filename);
           }
 
-          this.setDone(filename)
+          this.setDone(filename);
 
-          console.log('Upload complete', filename)
+          console.log("Upload complete", filename);
           if (!this.isPlaylist(filename)) {
-            res.end()
+            res.end();
           }
         } catch (e) {
-          return res.status(400).send()
+          return res.status(400).send();
         }
-      })
-    })
+      });
+    });
   }
 
-  isCached (filename) {
-    return !!this.cache[filename]
+  isCached(filename) {
+    return !!this.cache[filename];
   }
 
-  isChunk (filename) {
-    return filename.startsWith('chunk') && filename.endsWith('.m4s')
+  isChunk(filename) {
+    return filename.startsWith("chunk") && filename.endsWith(".m4s");
   }
 
-  isSegment (filename) {
-    return filename.endsWith('.m4s')
+  isSegment(filename) {
+    return filename.endsWith(".m4s");
   }
 
-  isPlaylist (filename) {
-    return filename.endsWith('.mpd')
+  isPlaylist(filename) {
+    return filename.endsWith(".mpd");
   }
 
-  isTempCached (filename) {
-    return filename.startsWith('chunk')
+  isTempCached(filename) {
+    return filename.startsWith("chunk");
   }
 
-  scheduleClearCache (filename) {
+  scheduleClearCache(filename) {
     setTimeout(() => {
-      this.clearFileCache(filename)
-    }, CACHE_DURATION)
+      this.clearFileCache(filename);
+    }, CACHE_DURATION);
   }
 
-  clearFileCache (filename) {
-    delete this.cache[filename]
+  clearFileCache(filename) {
+    delete this.cache[filename];
   }
 
-  resetFileCache (filename) {
+  resetFileCache(filename) {
     this.cache[filename] = {
       done: false,
-      chunks: []
-    }
+      chunks: [],
+    };
   }
 
-  cacheChunk (filename, chunk) {
-    this.cache[filename].chunks.push(chunk)
+  cacheChunk(filename, chunk) {
+    this.cache[filename].chunks.push(chunk);
   }
 
-  getChunks (filename) {
-    return this.cache[filename].chunks
+  getChunks(filename) {
+    return this.cache[filename].chunks;
   }
 
-  setDone (filename) {
-    this.cache[filename].done = true
+  setDone(filename) {
+    this.cache[filename].done = true;
   }
 
-  isDone (filename) {
-    return this.isCached(filename) && this.cache[filename].done === true
+  isDone(filename) {
+    return this.isCached(filename) && this.cache[filename].done === true;
   }
 
-  async sleep () {
-    return new Promise(resolve => setTimeout(resolve, TIME_SLEEP_MS))
+  async sleep() {
+    return new Promise((resolve) => setTimeout(resolve, TIME_SLEEP_MS));
   }
 
-  acceptDownload () {
-    this.app.get('/healthcheck', (req, res) => {
-      res.status(200).json({ message: 'OK' })
-    })
+  acceptDownload() {
+    this.app.get("/healthcheck", (req, res) => {
+      res.status(200).json({ message: "OK" });
+    });
 
-    this.app.get('/:filename', async (req, res, next) => {
+    this.app.get("/:filename", async (req, res, next) => {
       try {
-        const { filename } = req.params
-        res.set('Transfer-Encoding', 'chunked')
+        const { filename } = req.params;
+        res.set("Transfer-Encoding", "chunked");
 
         if (this.isSegment(filename)) {
-          res.set('Content-Type', 'video/mp4')
-          res.set('Cache-Control', 'max-age=31536000')
+          res.set("Content-Type", "video/mp4");
+          res.set("Cache-Control", "max-age=31536000");
         }
 
         if (this.isPlaylist(filename)) {
-          res.set('Content-Type', 'application/dash+xml')
+          res.set("Content-Type", "application/dash+xml");
         }
 
-        let idx = 0
-        let sleepCt = 0
+        let idx = 0;
+        let sleepCt = 0;
         while (!this.isDone(filename)) {
           if (sleepCt > MAX_SLEEP_COUNT) {
-            throw new Error('max sleep count reached')
+            throw new Error("max sleep count reached");
           }
           if (!this.isCached(filename)) {
-            await this.sleep()
-            sleepCt++
-            continue
+            await this.sleep();
+            sleepCt++;
+            continue;
           }
 
-          const chunks = this.getChunks(filename).slice(idx)
-          const length = chunks.length
+          const chunks = this.getChunks(filename).slice(idx);
+          const length = chunks.length;
           if (length === 0) {
-            await this.sleep()
-            sleepCt++
-            continue
+            await this.sleep();
+            sleepCt++;
+            continue;
           }
-          idx += length
-          const buffer = Buffer.concat(chunks)
-          res.write(buffer)
-          res.flush()
-          await this.sleep()
-          sleepCt++
+          idx += length;
+          const buffer = Buffer.concat(chunks);
+          res.write(buffer);
+          res.flush();
+          await this.sleep();
+          sleepCt++;
         }
 
-        const chunks = this.getChunks(filename).slice(idx)
-        const length = chunks.length
+        const chunks = this.getChunks(filename).slice(idx);
+        const length = chunks.length;
         if (length === 0) {
-          res.end()
-          return
+          res.end();
+          return;
         }
-        console.log('Download complete', filename)
-        const buffer = Buffer.concat(chunks)
-        res.write(buffer)
-        res.flush()
-        res.end()
+        console.log("Download complete", filename);
+        const buffer = Buffer.concat(chunks);
+        res.write(buffer);
+        res.flush();
+        res.end();
       } catch (e) {
-        console.log(e)
-        return res.status(400).send()
+        console.log(e);
+        return res.status(400).send();
       }
-    })
+    });
   }
 
-  stop () {
-    this.server.close()
+  stop() {
+    this.server.close();
   }
 }
 
-const server = new UllServer()
-server.start()
+const server = new UllServer();
+server.start();

@@ -1,0 +1,13 @@
+version: '2'
+services:
+  web:
+    volumes: 
+      - "./app:src/app"
+    build: .
+    command: npm run start
+    ports:
+      - "3104:3104"
+    depends_on: 
+      - ffmpeg
+  ffmpeg:
+    image: jrottenberg/ffmpeg:3.3
