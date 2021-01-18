@@ -1,7 +1,6 @@
 module.exports = [
   `-re`,
-  // `-i`, `rtmp://localhost/live/test`,
-  `-i`, `utils/test.mp4`,
+  `-i`, `rtmp://localhost/live/test`,
   `-pix_fmt`, `yuv420p`,
   `-map`, `0:v`,
   `-c:v`, `libx264`, `-tune`, `zerolatency`, `-profile:v`, `high`, `-preset`, `veryfast`, `-bf`, `0`, `-refs`, `3`, `-sc_threshold`, `0`,
@@ -9,7 +8,7 @@ module.exports = [
   `-keyint_min`, `144`,
   `-b:v`, `400k`,
   `-method`, `PUT`,
-  `-seg_duration`, `6`,
+  `-seg_duration`, `15`,
   `-streaming`, `1`,
   `-http_persistent`, `1`,
   `-index_correction`, `1`,

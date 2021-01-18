@@ -11,7 +11,7 @@ const CACHE_DURATION = 30000;
 const TIME_SLEEP_MS = 50;
 // const MAX_SLEEP_COUNT = (1000 / TIME_SLEEP_MS) * 10;
 const MAX_SLEEP_COUNT = Infinity;
-const stream = require("./utils/stream");
+const inConfig = require("./incmd");
 
 const PORT = 3104;
 
@@ -32,7 +32,7 @@ const RTMPconfig = {
 };
 
 var nms = new NodeMediaServer(RTMPconfig);
-nms.run()
+nms.run();
 
 class UllServer {
   start() {
@@ -43,7 +43,25 @@ class UllServer {
     this.listen();
   }
 
-  async startRecording() {}
+  async startRecording() {
+    const browser = await puppeteer.launch();
+    const page = await browser.newPage();
+    await page.goto("https://www.youtube.com/watch?v=YRbKZRp2Fb4");
+    await page.setViewport({
+      width: 1920,
+      height: 1080,
+    });
+
+    const stream = await page.getStream({ audio: true, video: true });
+    const ffmpeg = childProcess.spawn("ffmpeg", inConfig);
+
+    stream.pipe(ffmpeg.stdin)
+
+    setTimeout(() =>{
+      this.startTranscoding()
+    }, 5000)
+
+  }
 
   listen() {
     this.acceptUpload();
@@ -57,7 +75,7 @@ class UllServer {
       if (this.instance) {
         return res.status(200).json({ message: "already started" });
       }
-      this.startTranscoding();
+      this.startRecording();
       return res.status(200).json({
         message: `started manifest is at http://localhost:${PORT}/manifest.mpd`,
       });
@@ -81,6 +99,7 @@ class UllServer {
   }
 
   startTranscoding() {
+    console.log('>> START TRANSCODING');
     this.instance = childProcess.spawn("ffmpeg", config);
     let isFirstData = true;
     this.instance.stderr.on("data", (data) => {
@@ -88,6 +107,10 @@ class UllServer {
         console.log("ffmpeg started");
         isFirstData = false;
       }
+    });
+
+    this.instance.on("error", () => {
+      console.log("ffmpeg error");
     });
 
     this.instance.on("close", () => {

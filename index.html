@@ -10,10 +10,9 @@
 <body>
   <h1>Test</h1>
   <video id="videoPlayer"></video>
-  <video muted src="./utils/test.mp4"></video>
   <script src="http://cdn.dashjs.org/v3.1.0/dash.all.min.js"></script>
   <script>
-    const url = "http://192.168.1.10:3104/manifest.mpd";
+    const url = "http://localhost:3104/manifest.mpd";
     const player = dashjs.MediaPlayer().create();
     player.initialize(document.querySelector("#videoPlayer"), url, true);
 
