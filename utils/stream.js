@@ -17,12 +17,18 @@ module.exports.stream = async function (options) {
 
   var outUrl = options.output || 'rtmp://a.rtmp.youtube.com/live2/';
 
-  const args = ffmpegArgs(fps);
+  const args = ffmpegArgs({
+    ffmpegPath,
+    fps,
+    resolution,
+    preset,
+    rate,
+    threads
+  });
 
   // var fullUrl = outUrl + options.key
   args.push(outUrl);
 
-  const ffmpeg = spawn(ffmpegPath, args);
 
   let screenshot = null;
 
@@ -36,31 +42,7 @@ module.exports.stream = async function (options) {
 
     screenshot = await page.screenshot({ type: 'jpeg' });
 
-    await ffmpeg.stdin.write(screenshot);
   }
 };
 
-const ffmpegArgs = (fps) => [
-  // IN
-  '-f', 'image2pipe',
-  '-use_wallclock_as_timestamps', '1',
-  '-i', '-',
-  '-f', 'lavfi', '-i', 'anullsrc',
-  // OUT
-  '-deinterlace',
-  '-s', resolution,
-  '-vsync', 'cfr',
-  '-r', fps,
-  '-g', (fps * 2),
-  '-vcodec', 'libx264',
-  '-x264opts', 'keyint=' + (fps * 2) + ':no-scenecut',
-  '-preset', preset,
-  '-b:v', rate,
-  '-minrate', rate,
-  '-maxrate', rate,
-  '-bufsize', rate,
-  '-pix_fmt', 'yuv420p',
-  '-threads', threads,
-  '-f', 'lavfi', '-acodec', 'libmp3lame', '-ar', '44100', '-b:a', '128k',
-  '-f', 'flv',
-];
+const ffmpegArgs = ({fps, resolution, preset, rate, threads}) => 

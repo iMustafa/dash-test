@@ -9,30 +9,9 @@ require("puppeteer-stream");
 const puppeteer = require("puppeteer");
 const CACHE_DURATION = 30000;
 const TIME_SLEEP_MS = 50;
-// const MAX_SLEEP_COUNT = (1000 / TIME_SLEEP_MS) * 10;
 const MAX_SLEEP_COUNT = Infinity;
-const inConfig = require("./incmd");
 
 const PORT = 3104;
-
-const NodeMediaServer = require("node-media-server");
-
-const RTMPconfig = {
-  rtmp: {
-    port: 1935,
-    chunk_size: 60000,
-    gop_cache: true,
-    ping: 30,
-    ping_timeout: 60,
-  },
-  http: {
-    port: 8000,
-    allow_origin: "*",
-  },
-};
-
-var nms = new NodeMediaServer(RTMPconfig);
-nms.run();
 
 class UllServer {
   start() {
@@ -41,26 +20,6 @@ class UllServer {
     this.app.use(compression());
     this.cache = {};
     this.listen();
-  }
-
-  async startRecording() {
-    const browser = await puppeteer.launch();
-    const page = await browser.newPage();
-    await page.goto("https://www.youtube.com/watch?v=YRbKZRp2Fb4");
-    await page.setViewport({
-      width: 1920,
-      height: 1080,
-    });
-
-    const stream = await page.getStream({ audio: true, video: true });
-    const ffmpeg = childProcess.spawn("ffmpeg", inConfig);
-
-    stream.pipe(ffmpeg.stdin)
-
-    setTimeout(() =>{
-      this.startTranscoding()
-    }, 5000)
-
   }
 
   listen() {
@@ -75,7 +34,7 @@ class UllServer {
       if (this.instance) {
         return res.status(200).json({ message: "already started" });
       }
-      this.startRecording();
+      this.startTranscoding();
       return res.status(200).json({
         message: `started manifest is at http://localhost:${PORT}/manifest.mpd`,
       });
@@ -98,9 +57,24 @@ class UllServer {
     });
   }
 
-  startTranscoding() {
+  async startTranscoding() {
     console.log('>> START TRANSCODING');
+    const browser = await puppeteer.launch();
+    const page = await browser.newPage();
+    await page.goto("https://www.youtube.com/watch?v=YRbKZRp2Fb4");
+    await page.setViewport({
+      width: 1920,
+      height: 1080,
+    });
+
+    const stream = await page.getStream({ audio: true, video: true });
+
     this.instance = childProcess.spawn("ffmpeg", config);
+
+    stream.pipe(this.instance.stdin)
+
+    console.log('>> PIPPED INPUT');
+
     let isFirstData = true;
     this.instance.stderr.on("data", (data) => {
       if (isFirstData) {

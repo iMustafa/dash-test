@@ -1,6 +1,6 @@
 module.exports = [
   `-re`,
-  `-i`, `rtmp://localhost/live/test`,
+  `-i`, `-`,
   `-pix_fmt`, `yuv420p`,
   `-map`, `0:v`,
   `-c:v`, `libx264`, `-tune`, `zerolatency`, `-profile:v`, `high`, `-preset`, `veryfast`, `-bf`, `0`, `-refs`, `3`, `-sc_threshold`, `0`,
